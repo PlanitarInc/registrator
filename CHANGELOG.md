@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Base container is now Alpine
 - Built entirely in Docker
-- Moved to gliderlabs organization
+- Moved to PlanitarInc organization
 - New versioning scheme
 - Release artifact now saved container image
 
@@ -37,5 +37,5 @@ All notable changes to this project will be documented in this file.
 - Dropped Godeps for now
 
 
-[unreleased]: https://github.com/gliderlabs/registrator/compare/v5...HEAD
-[v5]: https://github.com/gliderlabs/registrator/compare/v0.4.0...v5
+[unreleased]: https://github.com/PlanitarInc/registrator/compare/v5...HEAD
+[v5]: https://github.com/PlanitarInc/registrator/compare/v0.4.0...v5

@@ -1,6 +1,6 @@
 # Registrator
 
-> Changes! Obviously we moved the repo. There is also a new build/release system that lets anybody propose a release with a PR. The old `progrium/registrator` repo on Docker Hub points here, but builds are no longer automated after this release. More changes listed [here](https://github.com/gliderlabs/registrator/releases/tag/v5). Join `#gliderlabs` on Freenode to discuss!
+> Changes! Obviously we moved the repo. There is also a new build/release system that lets anybody propose a release with a PR. The old `progrium/registrator` repo on Docker Hub points here, but builds are no longer automated after this release. More changes listed [here](https://github.com/PlanitarInc/registrator/releases/tag/v5). Join `#PlanitarInc` on Freenode to discuss!
 
 Service registry bridge for Docker
 
@@ -12,11 +12,11 @@ By default, it can register services without any user-defined metadata. This mea
 
 You can get the latest release of Registrator via Docker Hub:
 
-	$ docker pull gliderlabs/registrator:latest
+	$ docker pull PlanitarInc/registrator:latest
 
-You can pull the last build in `master` with the `master` tag. If you want to get a specific release, you can download the release artifact listed in [Releases](https://github.com/gliderlabs/registrator/releases) and `docker load` them:
+You can pull the last build in `master` with the `master` tag. If you want to get a specific release, you can download the release artifact listed in [Releases](https://github.com/PlanitarInc/registrator/releases) and `docker load` them:
 
-	$ curl -s https://dl.gliderlabs.com/registrator/v5.tgz | docker load
+	$ curl -s https://dl.PlanitarInc.com/registrator/v5.tgz | docker load
 
 ## Starting Registrator
 
@@ -24,7 +24,7 @@ Registrator was designed to just be run as a container. You must pass the Docker
 
 	$ docker run -d \
 		-v /var/run/docker.sock:/tmp/docker.sock \
-		-h $HOSTNAME gliderlabs/registrator <registry-uri>
+		-h $HOSTNAME PlanitarInc/registrator <registry-uri>
 
 By default, when registering a service, registrator will assign the service address by attempting to resolve the current hostname. If you would like to force the service address to be a specific address, you can specify the `-ip` argument.
 
@@ -256,7 +256,7 @@ Remember, this means Consul will be expecting a heartbeat ping within that 30 se
 
 As usual, pull requests are welcome. You can also propose releases by opening a PR against the release branch from master. Please be sure to bump the version and update CHANGELOG.md and include your changelog text in the PR body.
 
-Discuss registrator development with us on Freenode in `#gliderlabs`.
+Discuss registrator development with us on Freenode in `#PlanitarInc`.
 
 ## Todo / Contribution Ideas
 
