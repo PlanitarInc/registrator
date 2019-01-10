@@ -1,17 +1,21 @@
 package bridge
 
 import (
+	"errors"
 	"log"
 	"net"
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
+
+var serviceIDPattern = regexp.MustCompile(`^(.+?):([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$`)
 
 type Bridge struct {
 	sync.Mutex
@@ -22,28 +26,28 @@ type Bridge struct {
 	config         Config
 }
 
-func New(docker *dockerapi.Client, adapterUri string, config Config) *Bridge {
+func New(docker *dockerapi.Client, adapterUri string, config Config) (*Bridge, error) {
 	uri, err := url.Parse(adapterUri)
 	if err != nil {
-		log.Fatal("Bad adapter URI:", adapterUri)
+		return nil, errors.New("bad adapter uri: " + adapterUri)
 	}
 	factory, found := AdapterFactories.Lookup(uri.Scheme)
 	if !found {
-		log.Fatal("Unrecognized adapter:", adapterUri)
+		return nil, errors.New("unrecognized adapter: " + adapterUri)
 	}
-	adapter := factory.New(uri)
-	err = adapter.Ping()
-	if err != nil {
-		log.Fatalf("%s: %s", uri.Scheme, err)
-	}
+
 	log.Println("Using", uri.Scheme, "adapter:", uri)
 	return &Bridge{
 		docker:         docker,
 		config:         config,
-		registry:       adapter,
+		registry:       factory.New(uri),
 		services:       make(map[string][]*Service),
 		deadContainers: make(map[string]*DeadContainer),
-	}
+	}, nil
+}
+
+func (b *Bridge) Ping() error {
+	return b.registry.Ping()
 }
 
 func (b *Bridge) Add(containerId string) {
@@ -57,7 +61,7 @@ func (b *Bridge) Remove(containerId string) {
 }
 
 func (b *Bridge) RemoveOnExit(containerId string) {
-	b.remove(containerId, b.config.DeregisterCheck == "always" || b.didExitCleanly(containerId))
+	b.remove(containerId, b.shouldRemove(containerId))
 }
 
 func (b *Bridge) Refresh() {
@@ -97,8 +101,7 @@ func (b *Bridge) Sync(quiet bool) {
 
 	log.Printf("Syncing services on %d containers", len(containers))
 
-	// NOTE: This assumes reregistering will do the right thing, i.e. nothing.
-	// NOTE: This will NOT remove services.
+	// NOTE: This assumes reregistering will do the right thing, i.e. nothing..
 	for _, listing := range containers {
 		services := b.services[listing.ID]
 		if services == nil {
@@ -110,6 +113,69 @@ func (b *Bridge) Sync(quiet bool) {
 					log.Println("sync register failed:", service, err)
 				}
 			}
+		}
+	}
+
+	// Clean up services that were registered previously, but aren't
+	// acknowledged within registrator
+	if b.config.Cleanup {
+		// Remove services if its corresponding container is not running
+		log.Println("Listing non-exited containers")
+		filters := map[string][]string{"status": {"created", "restarting", "running", "paused"}}
+		nonExitedContainers, err := b.docker.ListContainers(dockerapi.ListContainersOptions{Filters: filters})
+		if err != nil {
+			log.Println("error listing nonExitedContainers, skipping sync", err)
+			return
+		}
+		for listingId, _ := range b.services {
+			found := false
+			for _, container := range nonExitedContainers {
+				if listingId == container.ID {
+					found = true
+					break
+				}
+			}
+			// This is a container that does not exist
+			if !found {
+				log.Printf("stale: Removing service %s because it does not exist", listingId)
+				go b.RemoveOnExit(listingId)
+			}
+		}
+
+		log.Println("Cleaning up dangling services")
+		extServices, err := b.registry.Services()
+		if err != nil {
+			log.Println("cleanup failed:", err)
+			return
+		}
+
+	Outer:
+		for _, extService := range extServices {
+			matches := serviceIDPattern.FindStringSubmatch(extService.ID)
+			if len(matches) != 3 {
+				// There's no way this was registered by us, so leave it
+				continue
+			}
+			serviceHostname := matches[1]
+			if serviceHostname != Hostname {
+				// ignore because registered on a different host
+				continue
+			}
+			serviceContainerName := matches[2]
+			for _, listing := range b.services {
+				for _, service := range listing {
+					if service.Name == extService.Name && serviceContainerName == service.Origin.container.Name[1:] {
+						continue Outer
+					}
+				}
+			}
+			log.Println("dangling:", extService.ID)
+			err := b.registry.Deregister(extService)
+			if err != nil {
+				log.Println("deregister failed:", extService.ID, err)
+				continue
+			}
+			log.Println(extService.ID, "removed")
 		}
 	}
 }
@@ -135,7 +201,8 @@ func (b *Bridge) add(containerId string, quiet bool) {
 	ports := make(map[string]ServicePort)
 
 	// Extract configured host port mappings, relevant when using --net=host
-	for port, published := range container.HostConfig.PortBindings {
+	for port, _ := range container.Config.ExposedPorts {
+		published := []dockerapi.PortBinding{ {"0.0.0.0", port.Port()}, }
 		ports[string(port)] = servicePort(container, port, published)
 	}
 
@@ -149,14 +216,20 @@ func (b *Bridge) add(containerId string, quiet bool) {
 		return
 	}
 
-	for _, port := range ports {
+	servicePorts := make(map[string]ServicePort)
+	for key, port := range ports {
 		if b.config.Internal != true && port.HostPort == "" {
 			if !quiet {
 				log.Println("ignored:", container.ID[:12], "port", port.ExposedPort, "not published on host")
 			}
 			continue
 		}
-		service := b.newService(port, len(ports) > 1)
+		servicePorts[key] = port
+	}
+
+	isGroup := len(servicePorts) > 1
+	for _, port := range servicePorts {
+		service := b.newService(port, isGroup)
 		if service == nil {
 			if !quiet {
 				log.Println("ignored:", container.ID[:12], "service on port", port.ExposedPort)
@@ -176,20 +249,16 @@ func (b *Bridge) add(containerId string, quiet bool) {
 func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 	container := port.container
 	defaultName := strings.Split(path.Base(container.Config.Image), ":")[0]
-	if isgroup {
-		defaultName = defaultName + "-" + port.ExposedPort
-	}
 
 	// not sure about this logic. kind of want to remove it.
-	hostname, err := os.Hostname()
-	if err != nil {
+	hostname := Hostname
+	if hostname == "" {
 		hostname = port.HostIP
-	} else {
-		if port.HostIP == "0.0.0.0" {
-			ip, err := net.ResolveIPAddr("ip", hostname)
-			if err == nil {
-				port.HostIP = ip.String()
-			}
+	}
+	if port.HostIP == "0.0.0.0" {
+		ip, err := net.ResolveIPAddr("ip", hostname)
+		if err == nil {
+			port.HostIP = ip.String()
 		}
 	}
 
@@ -197,18 +266,30 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 		port.HostIP = b.config.HostIp
 	}
 
-	metadata := serviceMetaData(container.Config.Env, port.ExposedPort)
+	metadata, metadataFromPort := serviceMetaData(container.Config, port.ExposedPort)
 
 	ignore := mapDefault(metadata, "ignore", "")
 	if ignore != "" {
 		return nil
 	}
 
+	serviceName := mapDefault(metadata, "name", "")
+	if serviceName == "" {
+		if b.config.Explicit {
+			return nil
+		}
+		serviceName = defaultName
+	}
+
 	service := new(Service)
 	service.Origin = port
 	service.ID = hostname + ":" + container.Name[1:] + ":" + port.ExposedPort
-	service.Name = mapDefault(metadata, "name", defaultName)
+	service.Name = serviceName
+	if isgroup && !metadataFromPort["name"] {
+		service.Name += "-" + port.ExposedPort
+	}
 	var p int
+
 	if b.config.Internal == true {
 		service.IP = port.ExposedIP
 		p, _ = strconv.Atoi(port.ExposedPort)
@@ -217,6 +298,39 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 		p, _ = strconv.Atoi(port.HostPort)
 	}
 	service.Port = p
+
+	if b.config.UseIpFromLabel != "" {
+		containerIp := container.Config.Labels[b.config.UseIpFromLabel]
+		if containerIp != "" {
+			slashIndex := strings.LastIndex(containerIp, "/")
+			if slashIndex > -1 {
+				service.IP = containerIp[:slashIndex]
+			} else {
+				service.IP = containerIp
+			}
+			log.Println("using container IP " + service.IP + " from label '" +
+				b.config.UseIpFromLabel  + "'")
+		} else {
+			log.Println("Label '" + b.config.UseIpFromLabel +
+				"' not found in container configuration")
+		}
+	}
+
+	// NetworkMode can point to another container (kuberenetes pods)
+	networkMode := container.HostConfig.NetworkMode
+	if networkMode != "" {
+		if strings.HasPrefix(networkMode, "container:") {
+			networkContainerId := strings.Split(networkMode, ":")[1]
+			log.Println(service.Name + ": detected container NetworkMode, linked to: " + networkContainerId[:12])
+			networkContainer, err := b.docker.InspectContainer(networkContainerId)
+			if err != nil {
+				log.Println("unable to inspect network container:", networkContainerId[:12], err)
+			} else {
+				service.IP = networkContainer.NetworkSettings.IPAddress
+				log.Println(service.Name + ": using network container IP " + service.IP)
+			}
+		}
+	}
 
 	if port.PortType == "udp" {
 		service.Tags = combineTags(
@@ -268,7 +382,13 @@ func (b *Bridge) remove(containerId string, deregister bool) {
 	delete(b.services, containerId)
 }
 
-func (b *Bridge) didExitCleanly(containerId string) bool {
+// bit set on ExitCode if it represents an exit via a signal
+var dockerSignaledBit = 128
+
+func (b *Bridge) shouldRemove(containerId string) bool {
+	if b.config.DeregisterCheck == "always" {
+		return true
+	}
 	container, err := b.docker.InspectContainer(containerId)
 	if _, ok := err.(*dockerapi.NoSuchContainer); ok {
 		// the container has already been removed from Docker
@@ -276,9 +396,27 @@ func (b *Bridge) didExitCleanly(containerId string) bool {
 		// so its exit code is not accessible
 		log.Printf("registrator: container %v was removed, could not fetch exit code", containerId[:12])
 		return true
-	} else if err != nil {
+	}
+
+	switch {
+	case err != nil:
 		log.Printf("registrator: error fetching status for container %v on \"die\" event: %v\n", containerId[:12], err)
 		return false
+	case container.State.Running:
+		log.Printf("registrator: not removing container %v, still running", containerId[:12])
+		return false
+	case container.State.ExitCode == 0:
+		return true
+	case container.State.ExitCode&dockerSignaledBit == dockerSignaledBit:
+		return true
 	}
-	return !container.State.Running && container.State.ExitCode == 0
+	return false
+}
+
+var Hostname string
+
+func init() {
+	// It's ok for Hostname to ultimately be an empty string
+	// An empty string will fall back to trying to make a best guess
+	Hostname, _ = os.Hostname()
 }

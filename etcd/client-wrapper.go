@@ -3,7 +3,6 @@ package etcd
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"regexp"
 
@@ -21,7 +20,7 @@ func NewEtcdClient(host string) (*EtcdClient, error) {
 	if host != "" {
 		urls = append(urls, "http://"+host)
 	} else {
-		urls = append(urls, "http://127.0.0.1:4001")
+		urls = append(urls, "http://127.0.0.1:2379")
 	}
 
 	res, err := http.Get(urls[0] + "/version")
@@ -33,11 +32,20 @@ func NewEtcdClient(host string) (*EtcdClient, error) {
 	body, _ := ioutil.ReadAll(res.Body)
 
 	if match, _ := regexp.Match("0\\.4\\.*", body); match == true {
-		log.Println("etcd client: using v0 client")
 		return &EtcdClient{client: etcd.NewClient(urls)}, nil
 	}
 
 	return &EtcdClient{client2: etcd2.NewClient(urls)}, nil
+}
+
+func (e *EtcdClient) SyncEtcdCluster() bool {
+	var result bool
+	if e.client != nil {
+		result = e.client.SyncCluster()
+	} else {
+		result = e.client2.SyncCluster()
+	}
+	return result
 }
 
 func (e *EtcdClient) Ping() error {

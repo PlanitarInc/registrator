@@ -21,6 +21,9 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 		log.Fatal("etcd: can't allocate client:", err)
 	}
 
+	if client.client != nil {
+		log.Println("etcd: using v0 client")
+	}
 	return &EtcdAdapter{client: client, path: uri.Path}
 }
 
@@ -31,10 +34,20 @@ type EtcdAdapter struct {
 }
 
 func (r *EtcdAdapter) Ping() error {
+	r.syncEtcdCluster()
+
 	return r.client.Ping()
 }
 
+func (r *EtcdAdapter) syncEtcdCluster() {
+	if !r.client.SyncEtcdCluster() {
+		log.Println("etcd: sync cluster was unsuccessful")
+	}
+}
+
 func (r *EtcdAdapter) Register(service *bridge.Service) error {
+	r.syncEtcdCluster()
+
 	path := r.path + "/" + service.Name + "/" + service.ID
 	port := strconv.Itoa(service.Port)
 	addr := net.JoinHostPort(service.IP, port)
@@ -47,6 +60,8 @@ func (r *EtcdAdapter) Register(service *bridge.Service) error {
 }
 
 func (r *EtcdAdapter) Deregister(service *bridge.Service) error {
+	r.syncEtcdCluster()
+
 	path := r.path + "/" + service.Name + "/" + service.ID
 
 	err := r.client.Delete(path, false)
@@ -58,4 +73,8 @@ func (r *EtcdAdapter) Deregister(service *bridge.Service) error {
 
 func (r *EtcdAdapter) Refresh(service *bridge.Service) error {
 	return r.Register(service)
+}
+
+func (r *EtcdAdapter) Services() ([]*bridge.Service, error) {
+	return []*bridge.Service{}, nil
 }
