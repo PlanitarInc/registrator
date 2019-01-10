@@ -2,8 +2,8 @@
 
 Service registry bridge for Docker.
 
-[![Circle CI](https://circleci.com/gh/gliderlabs/registrator.png?style=shield)](https://circleci.com/gh/gliderlabs/registrator)
-[![Docker pulls](https://img.shields.io/docker/pulls/gliderlabs/registrator.svg)](https://hub.docker.com/r/gliderlabs/registrator/)
+[![Circle CI](https://circleci.com/gh/PlanitarInc/registrator.png?style=shield)](https://circleci.com/gh/PlanitarInc/registrator)
+[![Docker pulls](https://img.shields.io/docker/pulls/PlanitarInc/registrator.svg)](https://hub.docker.com/r/PlanitarInc/registrator/)
 [![IRC Channel](https://img.shields.io/badge/irc-%23gliderlabs-blue.svg)](https://kiwiirc.com/client/irc.freenode.net/#gliderlabs)
 <br /><br />
 
@@ -17,9 +17,9 @@ Full documentation available at http://gliderlabs.com/registrator
 
 ## Getting Registrator
 
-Get the latest release, master, or any version of Registrator via [Docker Hub](https://registry.hub.docker.com/u/gliderlabs/registrator/):
+Get the latest release, master, or any version of Registrator via [Docker Hub](https://registry.hub.docker.com/u/PlanitarInc/registrator/):
 
-	$ docker pull gliderlabs/registrator:latest
+	$ docker pull PlanitarInc/registrator:latest
 
 Latest tag always points to the latest release. There is also a `:master` tag
 and version tags to pin to specific releases.
@@ -36,7 +36,7 @@ Guide. Typically, running Registrator looks like this:
         --name=registrator \
         --net=host \
         --volume=/var/run/docker.sock:/tmp/docker.sock \
-        gliderlabs/registrator:latest \
+        PlanitarInc/registrator:latest \
           consul://localhost:8500
 
 ## CLI Options
@@ -59,7 +59,7 @@ Usage of /bin/registrator:
 ## Contributing
 
 Pull requests are welcome! We recommend getting feedback before starting by
-opening a [GitHub issue](https://github.com/gliderlabs/registrator/issues) or
+opening a [GitHub issue](https://github.com/PlanitarInc/registrator/issues) or
 discussing in [Slack](http://glider-slackin.herokuapp.com/).
 
 Also check out our Developer Guide on [Contributing
@@ -73,7 +73,7 @@ Big thanks to Weave for sponsoring, Michael Crosby for
 for inspiration.
 
 For a full list of sponsors, see
-[SPONSORS](https://github.com/gliderlabs/registrator/blob/master/SPONSORS).
+[SPONSORS](https://github.com/PlanitarInc/registrator/blob/master/SPONSORS).
 
 ## License
 

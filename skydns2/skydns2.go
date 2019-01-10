@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gliderlabs/registrator/bridge"
-	"github.com/gliderlabs/registrator/etcd"
+	"github.com/PlanitarInc/registrator/bridge"
+	"github.com/PlanitarInc/registrator/etcd"
 )
 
 func init() {

@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/gliderlabs/registrator/bridge"
+	"github.com/PlanitarInc/registrator/bridge"
 )
 
 func init() {
